@@ -132,3 +132,4 @@ dmypy.json
 stitched_images
 images/special
 .DS_Store
+.idea

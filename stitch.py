@@ -19,7 +19,7 @@ parser.add_argument('--e', default='./exclude_features', type=str, help='This fo
 parser.add_argument('--a', default='SIFT', type=str, choices=['SIFT', 'SUPERGLUE', 'AKAZE'], help='Set the feature detection algorithm (default: SIFT)')
 parser.add_argument('--t', default='AFFINE', type=str, choices=['AFFINE', 'PERSPECTIVE'], help='Set the transformation type (default: AFFINE)')
 parser.add_argument('--s', default=4, type=int, help='Set the pre-stitch scaling ratio (default: 4)')
-parser.add_argument('--b', default=False, type=bool, help='Perform partial background removal during detection (default: False)')
+parser.add_argument('--b', default=True, type=bool, help='Perform partial background removal during detection (default: True)')
 parser.add_argument('--p', default=False, type=bool, help='Preview the stitching progress (default: False)')
 
 args = parser.parse_args()

@@ -18,9 +18,11 @@ def __process_resize(w, h, resize):
 
     # Issue warning if resolution is too small or too large.
     if max(w_new, h_new) < 160:
-        print('Warning: input resolution is very small, results may vary')
+        with open('./errors.txt', 's') as errors_out:
+            errors_out.write('Warning: input resolution is very small, results may vary')
     elif max(w_new, h_new) > 2000:
-        print('Warning: input resolution is very large, results may vary')
+        with open('./errors.txt', 's') as errors_out:
+            errors_out.write('Warning: input resolution is very large, results may vary')
 
     return w_new, h_new
 
@@ -41,14 +43,13 @@ def get_corresponding_points_superglue(img1, img1_mask, img2, img2_mask, scale=1
     image1, inp1, scales1 = __read_loaded_image(
         cv2.resize(cv2.bitwise_and(img2, img2, mask=img2_mask)[:, :, 2], (int(img2.shape[1] / scale), int(img2.shape[0] / scale))), 'cpu')
 
-    print('finding keypoints')
     pred = matching({'image0': inp0,
                      'image1': inp1})
     pred = {k: v[0].cpu().numpy() for k, v in pred.items()}
     kpts0, kpts1 = pred['keypoints0'], pred['keypoints1']
     matches, conf = pred['matches0'], pred['matching_scores0']
 
-    print('finding matches')
+    # print('finding matches')
     valid = matches > min_error
 
     if len(valid) > 10:  # len(good) > MIN_MATCH_COUNT:
@@ -67,7 +68,7 @@ def get_corresponding_points_superglue(img1, img1_mask, img2, img2_mask, scale=1
 def __get_matcher():
     # Load the SuperPoint and SuperGlue models.
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print('Running inference on device \"{}\"'.format(device))
+    # print('Running inference on device \"{}\"'.format(device))
     config = {
         'superpoint': {
             'nms_radius': 4,

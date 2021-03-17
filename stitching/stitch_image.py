@@ -178,6 +178,7 @@ class Full_Image:
         self.scale = scale
         self.suppress_background = suppress_background
         self.preview = preview
+        self.image_address = image_address
         temp_img = cv2.imread(image_address)
         if self.scale != 1:
             self.image = cv2.resize(temp_img, (int(temp_img.shape[1] / self.scale), int(temp_img.shape[0] / self.scale)))
@@ -270,37 +271,36 @@ class Full_Image:
         row = new_image.row
         col = new_image.col
         if dir == 0:
-            self.stitch_vertical(new_image, row, col, algorithm, transform_type)
+            x_offset, y_offset = self.stitch_vertical(new_image, row, col, algorithm, transform_type)
 
         elif dir == 1:
-            self.stitch_horizontal(new_image, row, col, algorithm, transform_type)
+            x_offset, y_offset = self.stitch_horizontal(new_image, row, col, algorithm, transform_type)
 
         elif dir == 2:
-            self.stitch_diagonal(new_image, row, col, algorithm, transform_type)
+            x_offset, y_offset = self.stitch_diagonal(new_image, row, col, algorithm, transform_type)
 
         if self.preview:
             cv2.imshow('image', self.image)
-            cv2.waitKey(1000)
+            cv2.waitKey(5)
             cv2.destroyWindow('image')
-        return self.image
+        return (self.image, x_offset, y_offset)
 
     def stitch_full(self, img2, algorithm, transform_type='AFFINE'):
         matching_results = self.get_homography(np.full((self.image.shape[0], self.image.shape[1]), 255, dtype=np.ubyte), img2.image, np.full((img2.image.shape[0], img2.image.shape[1]), 255, dtype=np.ubyte), algorithm,
                                                transform_type)
         if matching_results is not None:
             img2.set_matrix(matching_results[0])
-            self.join_images(img2, transform_type)
-            return
+            return self.join_images(img2, transform_type)
         else:
-            print("Not enough matches are found")
+            with open('./errors.txt', 's') as errors_out:
+                errors_out.write(f'Failed to add an image file to series {self.image_address}.\n')
 
     def stitch_full_mask(self, img2, algorithm, transform_type='AFFINE'):
         matching_results = self.get_homography(self.mask, img2.image, img2.mask, algorithm,
                                                transform_type)
         if matching_results is not None:
             img2.set_matrix(matching_results[0])
-            self.join_images(img2, transform_type)
-            return
+            return self.join_images(img2, transform_type)
         else:
             # Make a last ditch attempt to match with no masking at all
             return self.stitch_full(img2, algorithm, transform_type)
@@ -312,8 +312,7 @@ class Full_Image:
                                             transform_type)
         if match_results is not None:
             img2.set_matrix(match_results[0])
-            self.join_images(img2, transform_type)
-            return
+            return self.join_images(img2, transform_type)
 
         else:
             # Try again to make a match with the whole image instead
@@ -328,8 +327,7 @@ class Full_Image:
 
         if matching_results is not None:
             img2.set_matrix(matching_results[0])
-            self.join_images(img2, transform_type)
-            return
+            return self.join_images(img2, transform_type)
 
         else:
             # Try again to make a match with the whole image instead
@@ -343,8 +341,7 @@ class Full_Image:
 
         if matching_results is not None:
             img2.set_matrix(matching_results[0])
-            self.join_images(img2, transform_type)
-            return
+            return self.join_images(img2, transform_type)
 
         else:
             # Try again to make a match with the whole image instead
@@ -413,3 +410,4 @@ class Full_Image:
         del result
         del result_mask
         collect()
+        return (x_offset, y_offset)

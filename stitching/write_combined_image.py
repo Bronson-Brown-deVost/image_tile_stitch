@@ -5,6 +5,7 @@ import ntpath
 import json
 from tqdm import tqdm
 from colorama import Fore, Style
+from gc import collect
 
 
 def merge_images(image_merge_list, transform_type, out_path, image_type):
@@ -51,12 +52,12 @@ def merge_images(image_merge_list, transform_type, out_path, image_type):
             first_image_info.matrix, (width, height), flags=cv2.INTER_CUBIC)
 
     del first_image
+    collect()
 
     for col in tqdm(image_merge_list, desc=f"{Fore.MAGENTA}Stitching Cols of {image_type}{Style.RESET_ALL}", leave=False, position=2):
         for row in tqdm(col, desc=f"{Fore.MAGENTA}Stitching Rows of {image_type}{Style.RESET_ALL}", leave=False, position=3):
             img = cv2.imread(row.file)
             full_image = join_images(full_image, img, row.matrix, transform_type)
-            del img
 
     cv2.imwrite(f'{out_path}/{file_name_base}-st.{file_name_extension}', full_image)
 
@@ -78,13 +79,35 @@ def join_images(full_img, img2, img2_matrix, transform_type):
                 trans_bottom_left[0][0][0], 0)
     y_offset = min(trans_top_left[0][0][1], trans_top_right[0][0][1], trans_bottom_right[0][0][1],
                  trans_bottom_left[0][0][1], 0)
+    orig_shape = (img2.shape[0], img2.shape[1])
+    if transform_type == 'AFFINE':
+        result = cv2.warpAffine(np.pad(img2, ((-y_offset, 0), (-x_offset, 0), (0, 0)), mode='constant', constant_values=0), img2_matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_LANCZOS4)
+    elif transform_type == 'PERSPECTIVE':
+        result = cv2.warpPerspective(np.pad(img2, ((-y_offset, 0), (-x_offset, 0), (0, 0)), mode='constant', constant_values=0), img2_matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_LANCZOS4)
+
+    del img2
+    collect()
+
+    # Make a cropping mask to chop off the weird anti-aliasing on the edges of the image.
+    # (otherwise we get aberrations in the image)
+    blank = np.zeros(orig_shape, dtype=np.uint8)
+    mask = cv2.rectangle(blank, (top_left[0][0][0] + 2, top_left[0][0][1] + 2),
+                         (bottom_right[0][0][0] - 2, bottom_right[0][0][1] - 2), 255, -1)
+    del blank
+    collect()
 
     if transform_type == 'AFFINE':
-        result = cv2.warpAffine(np.pad(img2, ((-y_offset, 0), (-x_offset, 0), (0, 0)), mode='constant', constant_values=0), img2_matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_CUBIC)
+        result_mask = cv2.warpAffine(mask, img2_matrix, (result.shape[1], result.shape[0]), flags=cv2.INTER_NEAREST)
     elif transform_type == 'PERSPECTIVE':
-        result = cv2.warpPerspective(np.pad(img2, ((-y_offset, 0), (-x_offset, 0), (0, 0)), mode='constant', constant_values=0), img2_matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_CUBIC)
+        result_mask = cv2.warpPerspective(mask, img2_matrix, (result.shape[1], result.shape[0]), flags=cv2.INTER_NEAREST)
 
-    # remove the antialiasing on the right edge of the transformed image
-    result[np.arange(result.shape[0]), (result.shape[1] - 1 - (result[:, ::-1] != 0).argmax(1)[:, 0:1]).flatten()] = 0
+    del mask
+    collect()
 
-    return _join_images(full_img, result, y_offset, x_offset)
+    result = cv2.bitwise_and(result, result, mask=result_mask)
+    del result_mask
+    collect()
+
+    joined_img = _join_images(full_img, result, y_offset, x_offset)
+
+    return joined_img

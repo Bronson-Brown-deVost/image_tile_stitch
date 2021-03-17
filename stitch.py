@@ -16,8 +16,11 @@ parser = argparse.ArgumentParser(description='A command line utility to stitch i
 parser.add_argument('--i', default='./images', type=str, help='Set the folder containing all images that should be stitched together (default: ./images)')
 parser.add_argument('--o', default='./stitched_images', type=str, help='This is folder where all the stitched images and their stitching data will be saved (default: ./stitched_images)')
 parser.add_argument('--e', default='./exclude_features', type=str, help='This folder contains images of objects that should be ignored by the image stitching algorithm (default: ./exclude_features)')
-parser.add_argument('--a', default='SIFT', type=str, choices=['SIFT', 'SUPERGLUE'], help='Set the feature detection algorithm (default: SIFT)')
+parser.add_argument('--a', default='SIFT', type=str, choices=['SIFT', 'SUPERGLUE', 'AKAZE'], help='Set the feature detection algorithm (default: SIFT)')
 parser.add_argument('--t', default='AFFINE', type=str, choices=['AFFINE', 'PERSPECTIVE'], help='Set the transformation type (default: AFFINE)')
+parser.add_argument('--s', default=4, type=int, help='Set the pre-stitch scaling ratio (default: 4)')
+parser.add_argument('--b', default=False, type=bool, help='Perform partial background removal during detection (default: False)')
+parser.add_argument('--p', default=False, type=bool, help='Preview the stitching progress (default: False)')
 
 args = parser.parse_args()
 
@@ -63,11 +66,13 @@ def main():
     print(Fore.GREEN)
     print(f'Beginning the stitching process using the {detection_algorithm} keypoint detection algorithm')
     print(f'The images will be stitched using {transform_type} transforms\n')
+    if (args.b):
+        print(f'The background will be suppressed while matching the images\n')
 
     print(f'There are {len(image_catalogue.keys())} Imaged Objects to be processed:')
     print(Style.RESET_ALL)
     # Begin the stitch process for each images object
-    for image_series in tqdm(list(image_catalogue.keys()), desc=f"{Fore.LIGHTRED_EX}Processing Imaged Objects{Style.RESET_ALL}", position=0):
+    for image_series in tqdm(list(image_catalogue.keys()), desc=f"{Fore.LIGHTMAGENTA_EX}Processing Imaged Objects{Style.RESET_ALL}", position=0):
         # Find the color series of images for this imaged object
         # We currently check only for the words 'Color' or 'PSC'
         color_substrings = ['Color', 'PSC']
@@ -81,7 +86,7 @@ def main():
 
         # Transpose the input so that rows are represented by the first dimension and columns by the second
         image_sequence = list(zip(*image_sequence))
-        image_adjustments = matrix_stitch(image_sequence, remove_features, image_series, detection_algorithm, transform_type)
+        image_adjustments = matrix_stitch(image_sequence, remove_features, image_series, detection_algorithm, transform_type, args.s, args.b, args.p)
 
         for image_type in tqdm(list(image_catalogue[image_series].keys()), desc=f"{Fore.CYAN}Stitching Image Series {image_series}{Style.RESET_ALL}", leave=False, position=1):
             # Transpose the sequence so that rows are represented by the first dimension and columns by the second

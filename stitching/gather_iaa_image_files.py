@@ -1,6 +1,8 @@
 import re
 import os
 import ntpath
+from tqdm import tqdm
+from colorama import Fore, Style
 
 name_parser = re.compile(r'(?P<plate>.*)-(?P<frag>Fg\d+)-(?P<side>[A-z]+).*-(?P<type>.*)\.')
 col_parser = re.compile(r'.*-C(?P<col>\d+)-.*')
@@ -14,7 +16,7 @@ def parse_image_files(dir: str):
             if file.endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff")):
                 file_list.append(os.path.join(root, file))
 
-    for file in file_list:
+    for file in tqdm(file_list, desc=f"{Fore.CYAN}Parsing and Gathering Image Files in {dir}{Style.RESET_ALL}", leave=False, position=1):
         matches = name_parser.match(file)
         if matches is not None:
             plate, frag, side, type = matches.group('plate'), matches.group('frag'), matches.group('side'), matches.group('type')

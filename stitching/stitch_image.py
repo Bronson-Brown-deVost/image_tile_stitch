@@ -1,10 +1,11 @@
 import numpy as np
 from numba import jit
-from stitching.sift_stitch import get_corresponding_points_sift
 import cv2
-
+from stitching.sift_stitch import get_corresponding_points_sift
 from stitching.superglue_stitch import get_corresponding_points_superglue
-
+from stitching.akaze_stitch import get_corresponding_points_akaze
+from gc import collect
+import skimage.measure
 
 @jit(nopython=True, parallel=True)
 def _combine_masks(x, y):
@@ -93,8 +94,9 @@ class Image_Transform:
         return {'file': self.file, 'col': self.col, 'row': self.row, 'matrix': self.matrix.tolist()}
 
 class Stitch_Image:
-    def __init__(self, image_address, col, row, scale=4):
+    def __init__(self, image_address, col, row, scale=4, suppress_background=False):
         self.scale = scale
+        self.suppress_background = suppress_background
         temp_img = cv2.imread(image_address)
         if self.scale != 1:
             self.image = cv2.resize(temp_img, (int(temp_img.shape[1] / self.scale), int(temp_img.shape[0] / self.scale)))
@@ -132,7 +134,31 @@ class Stitch_Image:
                 trans_mask = cv2.warpAffine(blank_mask, transform, (self.image.shape[1], self.image.shape[0]), borderValue=(255,255,255))
 
                 self.mask = _combine_masks(self.mask, trans_mask)
+                del blank_mask
+                del trans_mask
+                collect()
 
+        if self.suppress_background:
+            # Get rid of fuzz and other junk
+            img2 = cv2.inRange(cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV), (5, 75, 0), (35, 255, 225))
+
+            img_bw = img2.astype(np.bool)
+            del img2
+            collect()
+
+            labels = skimage.measure.label(img_bw, return_num=False)
+            img2_bool = labels == np.argmax(np.bincount(labels.flat, weights=img_bw.flat))
+            img2_single = img2_bool.astype(np.uint8)
+
+            size = (int((img2_single.shape[0] / 2) / 50), int((img2_single.shape[1] / 2) / 50))
+            kernel = np.ones(size, np.uint8)
+            img2_closed = cv2.morphologyEx(img2_single, cv2.MORPH_CLOSE, kernel)
+            self.mask = _combine_masks(self.mask, img2_closed * 255)
+            del labels
+            del img2_bool
+            del img2_single
+            del img2_closed
+            collect()
 
     def right_mask(self):
         return _combine_masks(self.mask, self.__right_mask)
@@ -148,8 +174,10 @@ class Stitch_Image:
 
 
 class Full_Image:
-    def __init__(self, image_address, scale=4):
+    def __init__(self, image_address, scale=4, suppress_background=False, preview=False):
         self.scale = scale
+        self.suppress_background = suppress_background
+        self.preview = preview
         temp_img = cv2.imread(image_address)
         if self.scale != 1:
             self.image = cv2.resize(temp_img, (int(temp_img.shape[1] / self.scale), int(temp_img.shape[0] / self.scale)))
@@ -177,7 +205,31 @@ class Full_Image:
                 blank_mask = np.full((mask_image.shape[0], mask_image.shape[1]), 0, dtype=np.ubyte)
                 trans_mask = cv2.warpAffine(blank_mask, transform, (self.image.shape[1], self.image.shape[0]), borderValue=(255,255,255))
                 self.mask = _combine_masks(self.mask, trans_mask)
+                del blank_mask
+                del trans_mask
+                collect()
 
+        if self.suppress_background:
+            # Get rid of fuzz and other junk
+            img2 = cv2.inRange(cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV), (5, 75, 0), (35, 255, 225))
+
+            img_bw = img2.astype(np.bool)
+            del img2
+            collect()
+
+            labels = skimage.measure.label(img_bw, return_num=False)
+            img2_bool = labels == np.argmax(np.bincount(labels.flat, weights=img_bw.flat))
+            img2_single = img2_bool.astype(np.uint8)
+
+            size = (int((img2_single.shape[0] / 2) / 50), int((img2_single.shape[1] / 2) / 50))
+            kernel = np.ones(size, np.uint8)
+            img2_closed = cv2.morphologyEx(img2_single, cv2.MORPH_CLOSE, kernel)
+            self.mask = _combine_masks(self.mask, img2_closed * 255)
+            del labels
+            del img2_bool
+            del img2_single
+            del img2_closed
+            collect()
 
     def get_width(self):
         return self.image.shape[1]
@@ -214,7 +266,7 @@ class Full_Image:
     def set_image(self, image):
         self.image = image
 
-    def add_image(self, new_image, dir, algorithm='SUPERGLUE', transform_type='AFFINE'):
+    def add_image(self, new_image, dir, algorithm='SIFT', transform_type='AFFINE'):
         row = new_image.row
         col = new_image.col
         if dir == 0:
@@ -226,6 +278,10 @@ class Full_Image:
         elif dir == 2:
             self.stitch_diagonal(new_image, row, col, algorithm, transform_type)
 
+        if self.preview:
+            cv2.imshow('image', self.image)
+            cv2.waitKey(1000)
+            cv2.destroyWindow('image')
         return self.image
 
     def stitch_full(self, img2, algorithm, transform_type='AFFINE'):
@@ -307,8 +363,10 @@ class Full_Image:
     def get_corresponding_points(self, img1_mask, img2, img2_mask, algorithm):
         if algorithm == 'SUPERGLUE':
             return get_corresponding_points_superglue(self.image, img1_mask, img2, img2_mask)
-        if algorithm == 'SIFT':
+        elif algorithm == 'SIFT':
             return get_corresponding_points_sift(self.image, img1_mask, img2, img2_mask)
+        elif algorithm == 'AKAZE':
+            return get_corresponding_points_akaze(self.image, img1_mask, img2, img2_mask)
 
         return None
 
@@ -339,14 +397,19 @@ class Full_Image:
                      trans_bottom_left[0][0][1], 0)
 
         if transform_type == 'AFFINE':
-            result = cv2.warpAffine(np.pad(img2.image, ((-y_offset, 0), (-x_offset, 0), (0, 0)), mode='constant', constant_values=0), img2.matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_CUBIC)
+            result = cv2.warpAffine(np.pad(img2.image, ((-y_offset, 0), (-x_offset, 0), (0, 0)), mode='constant', constant_values=0), img2.matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_NEAREST)
             result_mask = cv2.warpAffine(np.pad(img2.mask, ((-y_offset, 0), (-x_offset, 0)), mode='constant', constant_values=0), img2.matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_NEAREST)
         elif transform_type == 'PERSPECTIVE':
-            result = cv2.warpPerspective(np.pad(img2.image, ((-y_offset, 0), (-x_offset, 0), (0, 0)), mode='constant', constant_values=0), img2.matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_CUBIC)
+            result = cv2.warpPerspective(np.pad(img2.image, ((-y_offset, 0), (-x_offset, 0), (0, 0)), mode='constant', constant_values=0), img2.matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_NEAREST)
             result_mask = cv2.warpPerspective(np.pad(img2.mask, ((-y_offset, 0), (-x_offset, 0)), mode='constant', constant_values=0), img2.matrix, (width - x_offset, height - y_offset), flags=cv2.INTER_NEAREST)
+        del img2
+        collect()
 
         # remove the antialiasing on the right edge of the transformed image
         result[np.arange(result.shape[0]), (result.shape[1] - 1 - (result[:, ::-1] != 0).argmax(1)[:, 0:1]).flatten()] = 0
 
         self.image = _join_images(self.image, result, y_offset, x_offset)
         self.mask = _join_masks(self.mask, result_mask, y_offset, x_offset)
+        del result
+        del result_mask
+        collect()

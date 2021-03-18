@@ -1,10 +1,9 @@
-import sys
 import copy
 import os
 import argparse
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import colorama
-from colorama import Fore, Back, Style
+from colorama import Fore, Style
 
 from stitching.gather_iaa_image_files import parse_image_files
 from stitching.matrix_stitch import matrix_stitch
@@ -24,9 +23,62 @@ parser.add_argument('--p', default=False, type=bool, help='Preview the stitching
 
 args = parser.parse_args()
 
-def main():
-    errors = []
 
+def stitch(image_catalogue, remove_features, detection_algorithm, transform_type, out_path):
+    errors = []
+    # Begin the stitch process for each images object
+    for image_series in tqdm(list(image_catalogue.keys()),
+                             desc=f"{Fore.LIGHTMAGENTA_EX}Processing Imaged Objects{Style.RESET_ALL}"):
+        # Find the color series of images for this imaged object
+        # We currently check only for the words 'Color' or 'PSC'
+        color_substrings = ['Color', 'PSC']
+        color_key_candidates = [x for x in image_catalogue[image_series].keys() if
+                                any(map(x.__contains__, color_substrings))]
+        if len(color_key_candidates) == 0:
+            errors.append(f'Could not find any color images for {image_series}')
+            continue
+
+        color_key = color_key_candidates[0]
+        image_sequence = [[y["file"] for y in image_catalogue[image_series][color_key]['rows'][x]] for x in
+                          image_catalogue[image_series][color_key]['rows'].keys()]
+
+        # Transpose the input so that rows are represented by the first dimension and columns by the second
+        image_sequence = list(zip(*image_sequence))
+        image_adjustments = matrix_stitch(image_sequence, remove_features, image_series, detection_algorithm,
+                                          transform_type, args.s, args.b, args.p)
+
+        for image_type in tqdm(list(image_catalogue[image_series].keys()),
+                               desc=f"{Fore.CYAN}Stitching Image Series {image_series}{Style.RESET_ALL}", leave=False):
+            # Transpose the sequence so that rows are represented by the first dimension and columns by the second
+            image_sequence = list(zip(
+                *[[y["file"] for y in image_catalogue[image_series][image_type]['rows'][x]] for x in
+                  image_catalogue[image_series][image_type]['rows'].keys()]))
+            if len(image_adjustments) != len(image_sequence) and len(image_adjustments[0]) != len(image_sequence[0]):
+                errors.append(
+                    f'The number of images for {image_series} {image_type} does not match that of the color series')
+                continue
+
+            adj_transforms = copy.deepcopy(image_adjustments)
+            for col_1, col_2 in zip(adj_transforms, image_sequence):
+                for row_1, row_2 in zip(col_1, col_2):
+                    row_1.file = row_2
+            merge_images(adj_transforms, transform_type, out_path, image_type)
+
+    print(Fore.GREEN)
+    print(f'Finished stitching {len(image_catalogue.keys())} Imaged Objects')
+    print(f'The stitched images can be found in {out_path}')
+    print(Style.RESET_ALL)
+
+    if len(errors) > 0:
+        error_file = 'stitch_errors.txt'
+        with open(error_file, 'w') as out_file:
+            out_file.write('\n'.join(errors))
+        print(Fore.RED)
+        print('Some images or imaged object series were not stitched.')
+        print(f'See {error_file} for details.')
+
+
+def main():
     # Gather the command line options and prepare the initial settings
     out_path = args.o
 
@@ -71,48 +123,7 @@ def main():
 
     print(f'There are {len(image_catalogue.keys())} Imaged Objects to be processed:')
     print(Style.RESET_ALL)
-    # Begin the stitch process for each images object
-    for image_series in tqdm(list(image_catalogue.keys()), desc=f"{Fore.LIGHTMAGENTA_EX}Processing Imaged Objects{Style.RESET_ALL}", position=0):
-        # Find the color series of images for this imaged object
-        # We currently check only for the words 'Color' or 'PSC'
-        color_substrings = ['Color', 'PSC']
-        color_key_candidates = [x for x in image_catalogue[image_series].keys() if any(map(x.__contains__, color_substrings))]
-        if len(color_key_candidates) == 0:
-            errors.append(f'Could not find any color images for {image_series}')
-            continue
-
-        color_key = color_key_candidates[0]
-        image_sequence = [[y["file"] for y in image_catalogue[image_series][color_key]['rows'][x]] for x in image_catalogue[image_series][color_key]['rows'].keys()]
-
-        # Transpose the input so that rows are represented by the first dimension and columns by the second
-        image_sequence = list(zip(*image_sequence))
-        image_adjustments = matrix_stitch(image_sequence, remove_features, image_series, detection_algorithm, transform_type, args.s, args.b, args.p)
-
-        for image_type in tqdm(list(image_catalogue[image_series].keys()), desc=f"{Fore.CYAN}Stitching Image Series {image_series}{Style.RESET_ALL}", leave=False, position=1):
-            # Transpose the sequence so that rows are represented by the first dimension and columns by the second
-            image_sequence = list(zip(*[[y["file"] for y in image_catalogue[image_series][image_type]['rows'][x]] for x in image_catalogue[image_series][image_type]['rows'].keys()]))
-            if len(image_adjustments) != len(image_sequence) and len(image_adjustments[0]) != len(image_sequence[0]):
-                errors.append(f'The number of images for {image_series} {image_type} does not match that of the color series')
-                continue
-
-            adj_transforms = copy.deepcopy(image_adjustments)
-            for col_1, col_2 in zip(adj_transforms, image_sequence):
-                for row_1, row_2 in zip(col_1, col_2):
-                    row_1.file = row_2
-            merge_images(adj_transforms, transform_type, out_path, image_type)
-
-    print(Fore.GREEN)
-    print(f'Finished stitching {len(image_catalogue.keys())} Imaged Objects')
-    print(f'The stitched images can be found in {out_path}')
-    print(Style.RESET_ALL)
-
-    if len(errors) > 0:
-        error_file = 'stitch_errors.txt'
-        with open(error_file, 'w') as out_file:
-            out_file.write('\n'.join(errors))
-        print(Fore.RED)
-        print('Some images or imaged object series were not stitched.')
-        print(f'See {error_file} for details.')
+    stitch(image_catalogue, remove_features, detection_algorithm, transform_type, out_path)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,7 @@
 import numpy as np
 from numba import jit
+from tqdm.auto import tqdm
+from colorama import Fore, Style
 import cv2
 from stitching.sift_stitch import get_corresponding_points_sift
 from stitching.superglue_stitch import get_corresponding_points_superglue
@@ -95,9 +97,15 @@ class Image_Transform:
 
 class Stitch_Image:
     def __init__(self, image_address, col, row, scale=4, suppress_background=False):
+        pbar = tqdm(total=100, desc=f"{Fore.BLUE}Loading {image_address}{Style.RESET_ALL}", leave=False)
+
         self.scale = scale
         self.suppress_background = suppress_background
         temp_img = cv2.imread(image_address)
+
+        pbar.update(25)
+        pbar.set_description(f"{Fore.BLUE}Resizing {image_address}{Style.RESET_ALL}")
+
         if self.scale != 1:
             self.image = cv2.resize(temp_img, (int(temp_img.shape[1] / self.scale), int(temp_img.shape[0] / self.scale)))
             del temp_img
@@ -112,12 +120,22 @@ class Stitch_Image:
             np.full((half_height, self.image.shape[1]), 255, dtype=np.ubyte),
             np.full((self.image.shape[0] - half_height, self.image.shape[1]), 0, dtype=np.ubyte)), axis=0)
 
+        pbar.update(25)
+        pbar.set_description(f"{Fore.BLUE}Masking lower half of {image_address}{Style.RESET_ALL}")
+
         self.__right_mask = np.concatenate((
             np.full((self.image.shape[0], half_width), 255, dtype=np.ubyte),
             np.full((self.image.shape[0], self.image.shape[1] - half_width), 0, dtype=np.ubyte)), axis=1)
 
+        pbar.update(25)
+        pbar.set_description(f"{Fore.BLUE}Masking right half of {image_address}{Style.RESET_ALL}")
+
         self.mask = np.full((self.image.shape[0], self.image.shape[1]), 255, dtype=np.ubyte)
         self.matrix = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+        pbar.update(25)
+        pbar.set_description(f"{Fore.BLUE}Image ready for keypoint analysis and stitching{Style.RESET_ALL}")
+
+        pbar.close()
 
     def mask_images(self, image_list):
         for mask_image in image_list:
@@ -175,11 +193,17 @@ class Stitch_Image:
 
 class Full_Image:
     def __init__(self, image_address, scale=4, suppress_background=False, preview=False):
+        pbar = tqdm(total=100, desc=f"{Fore.BLUE}Loading {image_address}{Style.RESET_ALL}", leave=False)
+
         self.scale = scale
         self.suppress_background = suppress_background
         self.preview = preview
         self.image_address = image_address
         temp_img = cv2.imread(image_address)
+
+        pbar.update(33)
+        pbar.set_description(f"{Fore.BLUE}Resizing {image_address}{Style.RESET_ALL}")
+
         if self.scale != 1:
             self.image = cv2.resize(temp_img, (int(temp_img.shape[1] / self.scale), int(temp_img.shape[0] / self.scale)))
             del temp_img
@@ -190,7 +214,16 @@ class Full_Image:
         self.init_height = self.image.shape[0]
         self.col_count = 1
         self.row_count = 1
+
+        pbar.update(33)
+        pbar.set_description(f"{Fore.BLUE}Masking image {image_address}{Style.RESET_ALL}")
+
         self.mask = np.full((self.image.shape[0], self.image.shape[1]), 255, dtype=np.ubyte)
+
+        pbar.update(34)
+        pbar.set_description(f"{Fore.BLUE}Image ready for keypoint analysis and stitching{Style.RESET_ALL}")
+
+        pbar.close()
 
     def mask_images(self, image_list):
         for mask_image in image_list:
@@ -268,96 +301,110 @@ class Full_Image:
         self.image = image
 
     def add_image(self, new_image, dir, algorithm='SIFT', transform_type='AFFINE'):
+        pbar = tqdm(total=100, desc=f"{Fore.BLUE}Matching new image{Style.RESET_ALL}", leave=False)
+
         row = new_image.row
         col = new_image.col
         if dir == 0:
-            x_offset, y_offset = self.stitch_vertical(new_image, row, col, algorithm, transform_type)
+            x_offset, y_offset = self.stitch_vertical(new_image, row, col, algorithm, pbar, transform_type)
 
         elif dir == 1:
-            x_offset, y_offset = self.stitch_horizontal(new_image, row, col, algorithm, transform_type)
+            x_offset, y_offset = self.stitch_horizontal(new_image, row, col, algorithm, pbar, transform_type)
 
         elif dir == 2:
-            x_offset, y_offset = self.stitch_diagonal(new_image, row, col, algorithm, transform_type)
+            x_offset, y_offset = self.stitch_diagonal(new_image, row, col, algorithm, pbar, transform_type)
 
         if self.preview:
             cv2.imshow('image', self.image)
             cv2.waitKey(5)
             cv2.destroyWindow('image')
+
+        pbar.update(10)
+        pbar.set_description(f"{Fore.BLUE}Image matched{Style.RESET_ALL}")
+
+        pbar.close()
         return (self.image, x_offset, y_offset)
 
-    def stitch_full(self, img2, algorithm, transform_type='AFFINE'):
+    def stitch_full(self, img2, algorithm, pbar, transform_type='AFFINE'):
+        pbar.close()
+        pbar = tqdm(total=100, desc=f"{Fore.BLUE}Retrying match with full image{Style.RESET_ALL}", leave=False)
         matching_results = self.get_homography(np.full((self.image.shape[0], self.image.shape[1]), 255, dtype=np.ubyte), img2.image, np.full((img2.image.shape[0], img2.image.shape[1]), 255, dtype=np.ubyte), algorithm,
-                                               transform_type)
+                                               pbar, transform_type)
         if matching_results is not None:
             img2.set_matrix(matching_results[0])
-            return self.join_images(img2, transform_type)
+            return self.join_images(img2, pbar, transform_type)
         else:
             with open('./errors.txt', 's') as errors_out:
                 errors_out.write(f'Failed to add an image file to series {self.image_address}.\n')
 
-    def stitch_full_mask(self, img2, algorithm, transform_type='AFFINE'):
+    def stitch_full_mask(self, img2, algorithm, pbar, transform_type='AFFINE'):
+        pbar.close()
+        pbar = tqdm(total=100, desc=f"{Fore.BLUE}Retrying match with full masked image{Style.RESET_ALL}", leave=False)
         matching_results = self.get_homography(self.mask, img2.image, img2.mask, algorithm,
-                                               transform_type)
+                                               pbar, transform_type)
         if matching_results is not None:
             img2.set_matrix(matching_results[0])
-            return self.join_images(img2, transform_type)
+            return self.join_images(img2, pbar, transform_type)
         else:
             # Make a last ditch attempt to match with no masking at all
-            return self.stitch_full(img2, algorithm, transform_type)
+            return self.stitch_full(img2, algorithm, pbar, transform_type)
 
-    def stitch_vertical(self, img2, row, col, algorithm, transform_type='AFFINE'):
+    def stitch_vertical(self, img2, row, col, algorithm, pbar, transform_type='AFFINE'):
         # Note we compare the bottom half of the first image
         # with the top half of the second image
         match_results = self.get_homography(self.top_mask(row, col), img2.image, img2.bottom_mask(), algorithm,
-                                            transform_type)
+                                            pbar, transform_type)
         if match_results is not None:
             img2.set_matrix(match_results[0])
-            return self.join_images(img2, transform_type)
+            return self.join_images(img2, pbar, transform_type)
 
         else:
             # Try again to make a match with the whole image instead
-            return self.stitch_full_mask(img2, algorithm, transform_type)
+            return self.stitch_full_mask(img2, algorithm, pbar, transform_type)
 
-    def stitch_horizontal(self, img2, row, col, algorithm, transform_type='AFFINE'):
+    def stitch_horizontal(self, img2, row, col, algorithm, pbar, transform_type='AFFINE'):
         # Note we compare the right half of the first image
         # with the left half of the second image
 
         matching_results = self.get_homography(self.left_mask(row, col), img2.image, img2.right_mask(), algorithm,
-                                               transform_type)
+                                               pbar, transform_type)
 
         if matching_results is not None:
             img2.set_matrix(matching_results[0])
-            return self.join_images(img2, transform_type)
+            return self.join_images(img2, pbar, transform_type)
 
         else:
             # Try again to make a match with the whole image instead
-            return self.stitch_full_mask(img2, algorithm, transform_type)
+            return self.stitch_full_mask(img2, algorithm, pbar, transform_type)
 
-    def stitch_diagonal(self, img2, row, col, algorithm, transform_type='AFFINE'):
+    def stitch_diagonal(self, img2, row, col, algorithm, pbar, transform_type='AFFINE'):
         matching_results = self.get_homography(self.diag_mask(row, col), img2.image,
                                                np.full((img2.image.shape[0], img2.image.shape[1]), 255, dtype=np.ubyte),
                                                algorithm,
+                                               pbar,
                                                transform_type)
 
         if matching_results is not None:
             img2.set_matrix(matching_results[0])
-            return self.join_images(img2, transform_type)
+            return self.join_images(img2, pbar, transform_type)
 
         else:
             # Try again to make a match with the whole image instead
-            return self.stitch_full_mask(img2, algorithm, transform_type)
+            return self.stitch_full_mask(img2, algorithm, pbar, transform_type)
 
-    def get_homography(self, img1_mask, img2, img2_mask, algorithm, transform_type='AFFINE'):
-        matches = self.get_corresponding_points(img1_mask, img2, img2_mask, algorithm)
+    def get_homography(self, img1_mask, img2, img2_mask, algorithm, pbar, transform_type='AFFINE'):
+        matches = self.get_corresponding_points(img1_mask, img2, img2_mask, pbar, algorithm)
 
         if matches is None:
             return matches
 
         src_pts = matches[0]
         dst_pts = matches[1]
-        return self.get_homography_from_points(src_pts, dst_pts, transform_type)
+        return self.get_homography_from_points(src_pts, dst_pts, pbar, transform_type)
 
-    def get_corresponding_points(self, img1_mask, img2, img2_mask, algorithm):
+    def get_corresponding_points(self, img1_mask, img2, img2_mask, pbar, algorithm):
+        pbar.update(20)
+        pbar.set_description(f"{Fore.BLUE}Finding keypoints{Style.RESET_ALL}")
         if algorithm == 'SUPERGLUE':
             return get_corresponding_points_superglue(self.image, img1_mask, img2, img2_mask)
         elif algorithm == 'SIFT':
@@ -367,14 +414,20 @@ class Full_Image:
 
         return None
 
-    def get_homography_from_points(self, src_pts, dst_pts, transform_type='AFFINE'):
+    def get_homography_from_points(self, src_pts, dst_pts, pbar, transform_type='AFFINE'):
+        pbar.update(20)
+        pbar.set_description(f"{Fore.BLUE}Calculating transform{Style.RESET_ALL}")
+
         if transform_type == 'AFFINE':
             return cv2.estimateAffinePartial2D(dst_pts, src_pts, method=cv2.RANSAC, ransacReprojThreshold=5)
         if transform_type == 'PERSPECTIVE':
             return cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5)
         return None
 
-    def join_images(self, img2, transform_type='AFFINE'):
+    def join_images(self, img2, pbar, transform_type='AFFINE'):
+        pbar.update(20)
+        pbar.set_description(f"{Fore.BLUE}Transform new image{Style.RESET_ALL}")
+
         top_left = np.array([[[0, 0]]])
         top_right = np.array([[[img2.image.shape[1], 0]]])
         bottom_right = np.array([[[img2.image.shape[1], img2.image.shape[0]]]])
@@ -403,9 +456,16 @@ class Full_Image:
         collect()
 
         # remove the antialiasing on the right edge of the transformed image
-        result[np.arange(result.shape[0]), (result.shape[1] - 1 - (result[:, ::-1] != 0).argmax(1)[:, 0:1]).flatten()] = 0
+        # result[np.arange(result.shape[0]), (result.shape[1] - 1 - (result[:, ::-1] != 0).argmax(1)[:, 0:1]).flatten()] = 0
+
+        pbar.update(10)
+        pbar.set_description(f"{Fore.BLUE}Merge the new image into the current construct{Style.RESET_ALL}")
 
         self.image = _join_images(self.image, result, y_offset, x_offset)
+
+        pbar.update(10)
+        pbar.set_description(f"{Fore.BLUE}Recalculate masking{Style.RESET_ALL}")
+
         self.mask = _join_masks(self.mask, result_mask, y_offset, x_offset)
         del result
         del result_mask

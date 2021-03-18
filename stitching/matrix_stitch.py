@@ -1,7 +1,7 @@
 from stitching.stitch_image import Stitch_Image, Full_Image, Image_Transform
 import cv2
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from colorama import Fore, Style
 from gc import collect
 
@@ -27,9 +27,9 @@ def matrix_stitch(image_matrix, filter_images, image_name, algorithm='SIFT', tra
 
         return transforms
 
-    for idx, row in enumerate(tqdm(image_matrix, desc=f"{Fore.YELLOW}Detecting Alignment of Rows in {image_name}{Style.RESET_ALL}", leave=False, position=1)):
+    for idx, row in enumerate(tqdm(image_matrix, desc=f"{Fore.YELLOW}Detecting Alignment of Rows in {image_name}{Style.RESET_ALL}", leave=False)):
         new_col = True
-        for idy, col in enumerate(tqdm(row, desc=f"{Fore.YELLOW}Detecting Alignment of Columns in {image_name}{Style.RESET_ALL}", leave=False, position=2)):
+        for idy, col in enumerate(tqdm(row, desc=f"{Fore.YELLOW}Detecting Alignment of Columns in {image_name}{Style.RESET_ALL}", leave=False)):
             if prev_col is not None and first_col:
                 new_img = Stitch_Image(col, row=idy + 1, col=idx + 1, scale=scale, suppress_background=suppress_background)
                 new_img.mask_images(filter_images)

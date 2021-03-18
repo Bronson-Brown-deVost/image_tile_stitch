@@ -8,7 +8,9 @@ This program has only been tested on Python 3.9, but may also work on earlier ve
 
 To install the dependencies run `pip install -r requirements.txt`.
 
-For program usage run `python stitch.py -h`
+For program usage run `python stitch.py -h`. 
+
+Good results can be obtained by using the default settings (SIFT keypoints, AFFINE transformation, 4x size reduction, and background suppression). Using the `--p True` switch will allow you to see the stitching as it is happening in realtime and perhaps diagnose some obvious problems. If the matching of images is a bit poor, sometimes using `--a AKAZE --s 2` will produce more precise matches (at the expense of time and memory usage). If you run into real difficulties stitching a certain image using `--b False` to turn off the background suppression may have a positive effect in select cases (when the manuscript is not very brown in color). 
 
 ## Testing Data
 

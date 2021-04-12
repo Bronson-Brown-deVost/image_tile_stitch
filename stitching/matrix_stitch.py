@@ -4,11 +4,13 @@ import numpy as np
 from tqdm.auto import tqdm
 from colorama import Fore, Style
 from gc import collect
+import logging
+logger = logging.getLogger(__name__)
 
 
 # We output the result of each stitching step in sequence (in grayscale).
 # The plan is to store the series of homographies so they could be
-# directly applied to other sequesnces from the image cube.
+# directly applied to other sequences from the image cube.
 def matrix_stitch(image_matrix, filter_images, image_name, algorithm='SIFT', transform_type='AFFINE', scale=4, suppress_background=False, preview=False):
     i = 0
     prev_col = None
@@ -16,6 +18,7 @@ def matrix_stitch(image_matrix, filter_images, image_name, algorithm='SIFT', tra
     filter_images = [cv2.imread(x) for x in filter_images]
     filter_images = [cv2.resize(x, (int(x.shape[1] / scale), int(x.shape[0] / scale))) for x in filter_images]
     transforms = [[]]
+    first_image = ''
 
     def add_offset(transforms, x_offset, y_offset, scale):
         x_offset = x_offset * scale
@@ -33,7 +36,12 @@ def matrix_stitch(image_matrix, filter_images, image_name, algorithm='SIFT', tra
             if prev_col is not None and first_col:
                 new_img = Stitch_Image(col, row=idy + 1, col=idx + 1, scale=scale, suppress_background=suppress_background)
                 new_img.mask_images(filter_images)
-                _, x_offset, y_offset = prev_col.add_image(new_img, 0, algorithm=algorithm, transform_type=transform_type)
+                added = prev_col.add_image(new_img, 0, algorithm=algorithm, transform_type=transform_type)
+                if added is None:
+                    logger.error(f'Could not add image {col} to {first_image}')
+                    return None
+
+                _, x_offset, y_offset = added
                 adj_matrix = np.copy(new_img.matrix)
                 transforms = add_offset(transforms, x_offset, y_offset, scale)
                 adj_matrix[0][2] -= x_offset
@@ -49,13 +57,19 @@ def matrix_stitch(image_matrix, filter_images, image_name, algorithm='SIFT', tra
                 collect()
             elif first_col:
                 prev_col = Full_Image(col, scale=scale, suppress_background=suppress_background, preview=preview)
+                first_image = col
                 prev_col.mask_images(filter_images)
                 matrix = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]) if transform_type == 'AFFINE' else np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
                 transforms[i].append(Image_Transform(col, 1, 1, matrix))
             else:
                 new_img = Stitch_Image(col, row=idy + 1, col=idx + 1, scale=scale, suppress_background=suppress_background)
                 new_img.mask_images(filter_images)
-                _, x_offset, y_offset = prev_col.add_image(new_img, 1 if new_col else 2, algorithm=algorithm, transform_type=transform_type)
+                added = prev_col.add_image(new_img, 1 if new_col else 2, algorithm=algorithm, transform_type=transform_type)
+                if added is None:
+                    logger.error(f'Could not add image {col} to {first_image}')
+                    return None
+
+                _, x_offset, y_offset = added
                 adj_matrix = np.copy(new_img.matrix)
                 transforms = add_offset(transforms, x_offset, y_offset, scale)
                 adj_matrix[0][2] -= x_offset

@@ -9,6 +9,7 @@ from stitching.akaze_stitch import get_corresponding_points_akaze
 from gc import collect
 import skimage.measure
 
+
 @jit(nopython=True, parallel=True)
 def _combine_masks(x, y):
     return np.where(x == 0, x, y)
@@ -305,14 +306,15 @@ class Full_Image:
 
         row = new_image.row
         col = new_image.col
-        if dir == 0:
-            x_offset, y_offset = self.stitch_vertical(new_image, row, col, algorithm, pbar, transform_type)
+        stitch_params = self.stitch_vertical(new_image, row, col, algorithm, pbar, transform_type) if dir == 0 \
+            else self.stitch_horizontal(new_image, row, col, algorithm, pbar, transform_type) if dir == 1 \
+            else self.stitch_diagonal(new_image, row, col, algorithm, pbar, transform_type) if dir == 2 \
+            else None
 
-        elif dir == 1:
-            x_offset, y_offset = self.stitch_horizontal(new_image, row, col, algorithm, pbar, transform_type)
+        if stitch_params is None:
+            return None
 
-        elif dir == 2:
-            x_offset, y_offset = self.stitch_diagonal(new_image, row, col, algorithm, pbar, transform_type)
+        x_offset, y_offset = stitch_params
 
         if self.preview:
             cv2.imshow('image', self.image)
@@ -334,8 +336,7 @@ class Full_Image:
             img2.set_matrix(matching_results[0])
             return self.join_images(img2, pbar, transform_type)
         else:
-            with open('./errors.txt', 's') as errors_out:
-                errors_out.write(f'Failed to add an image file to series {self.image_address}.\n')
+            return None
 
     def stitch_full_mask(self, img2, algorithm, pbar, transform_type='AFFINE'):
         pbar.close()

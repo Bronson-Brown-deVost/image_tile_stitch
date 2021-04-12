@@ -3,6 +3,8 @@ import os
 import ntpath
 from tqdm import tqdm
 from colorama import Fore, Style
+import logging
+logger = logging.getLogger(__name__)
 
 name_parser = re.compile(r'(?P<plate>.*)-(?P<frag>Fg\d+)-(?P<side>[A-z]+).*-(?P<type>.*)\.')
 col_parser = re.compile(r'.*-C(?P<col>\d+)-.*')
@@ -18,28 +20,56 @@ def parse_image_files(dir: str):
 
     for file in tqdm(file_list, desc=f"{Fore.CYAN}Parsing and Gathering Image Files in {dir}{Style.RESET_ALL}", leave=False, position=1):
         matches = name_parser.match(file)
-        if matches is not None:
-            plate, frag, side, type = matches.group('plate'), matches.group('frag'), matches.group('side'), matches.group('type')
-            if plate is not None and frag is not None and type is not None and side is not None:
-                plate = ntpath.basename(plate)
-                label = f'{plate}-{frag}-{side}'
-                if label not in image_collection:
-                    image_collection[label] = {}
-                if type not in image_collection[label]:
-                    image_collection[label][type] = {'rows': {}}
-                col_matches = col_parser.match(file)
-                row_matches = row_parser.match(file)
-                if col_matches is not None and row_matches is not None:
-                    col = col_matches.group('col')
-                    row = row_matches.group('row')
-                    if row not in image_collection[label][type]['rows']:
-                        image_collection[label][type]['rows'][row] = []
-                    image_collection[label][type]['rows'][row].append({'file': file, 'col': col, 'row': row})
-                    # This is a bit lazy, but the lists are not long, so it probably doesn't matter
-                    if len(image_collection[label][type]['rows'][row]) > 1:
-                        image_collection[label][type]['rows'][row] = sorted(image_collection[label][type]['rows'][row], key=lambda d: int(d['col']))
-                    if len(image_collection[label][type]['rows'].keys()) > 1:
-                        image_collection[label][type]['rows'] = {key: image_collection[label][type]['rows'][key] for key in sorted(image_collection[label][type]['rows'].keys())}
+
+        if matches is None:
+            logger.error(f'Could not parse plate, fragment, side, and type in file: {file}')
+            continue
+
+        plate, frag, side, type = matches.group('plate'), matches.group('frag'), matches.group('side'), matches.group('type')
+
+        if None in [plate, frag, type, side]:
+            missing = []
+            if plate is None:
+                missing.append('plate')
+            if frag is None:
+                missing.append('frag')
+            if type is None:
+                missing.append('type')
+            if side is None:
+                missing.append('side')
+            unparsed = ', and '.join(filter(None, [', '.join(missing[:-1])] + missing[-1:]))
+            logger.error(f'Could not parse {unparsed} in file: {file}')
+            continue
+
+        plate = ntpath.basename(plate)
+        label = f'{plate}-{frag}-{side}'
+        if label not in image_collection:
+            image_collection[label] = {}
+        if type not in image_collection[label]:
+            image_collection[label][type] = {'rows': {}}
+        col_matches = col_parser.match(file)
+        row_matches = row_parser.match(file)
+
+        if None in [col_matches, row_matches]:
+            missing = []
+            if col_matches is None:
+                missing.append('col_matches')
+            if row_matches is None:
+                missing.append('row_matches')
+            unparsed = ', and '.join(filter(None, [', '.join(missing[:-1])] + missing[-1:]))
+            logger.error(f'Could not parse {unparsed} in file: {file}')
+            continue
+
+        col = col_matches.group('col')
+        row = row_matches.group('row')
+        if row not in image_collection[label][type]['rows']:
+            image_collection[label][type]['rows'][row] = []
+        image_collection[label][type]['rows'][row].append({'file': file, 'col': col, 'row': row})
+        # This is a bit lazy, but the lists are not long, so it probably doesn't matter
+        if len(image_collection[label][type]['rows'][row]) > 1:
+            image_collection[label][type]['rows'][row] = sorted(image_collection[label][type]['rows'][row], key=lambda d: int(d['col']))
+        if len(image_collection[label][type]['rows'].keys()) > 1:
+            image_collection[label][type]['rows'] = {key: image_collection[label][type]['rows'][key] for key in sorted(image_collection[label][type]['rows'].keys())}
 
     return image_collection
 

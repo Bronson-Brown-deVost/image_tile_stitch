@@ -4,6 +4,8 @@ import argparse
 from tqdm.auto import tqdm
 import colorama
 from colorama import Fore, Style
+import logging
+log_file = 'stitch.log'
 
 from stitching.gather_iaa_image_files import parse_image_files
 from stitching.matrix_stitch import matrix_stitch
@@ -25,7 +27,7 @@ args = parser.parse_args()
 
 
 def stitch(image_catalogue, remove_features, detection_algorithm, transform_type, out_path):
-    errors = []
+    errors = False
     # Begin the stitch process for each images object
     for image_series in tqdm(list(image_catalogue.keys()),
                              desc=f"{Fore.LIGHTMAGENTA_EX}Processing Imaged Objects{Style.RESET_ALL}"):
@@ -35,7 +37,8 @@ def stitch(image_catalogue, remove_features, detection_algorithm, transform_type
         color_key_candidates = [x for x in image_catalogue[image_series].keys() if
                                 any(map(x.__contains__, color_substrings))]
         if len(color_key_candidates) == 0:
-            errors.append(f'Could not find any color images for {image_series}')
+            errors = True
+            logging.error(f'Could not find any color images for {image_series}')
             continue
 
         color_key = color_key_candidates[0]
@@ -47,6 +50,11 @@ def stitch(image_catalogue, remove_features, detection_algorithm, transform_type
         image_adjustments = matrix_stitch(image_sequence, remove_features, image_series, detection_algorithm,
                                           transform_type, args.s, args.b, args.p)
 
+        if image_adjustments is None:
+            errors = True
+            logging.error(f'Could not stitch {image_series}')
+            continue
+
         for image_type in tqdm(list(image_catalogue[image_series].keys()),
                                desc=f"{Fore.CYAN}Stitching Image Series {image_series}{Style.RESET_ALL}", leave=False):
             # Transpose the sequence so that rows are represented by the first dimension and columns by the second
@@ -54,7 +62,8 @@ def stitch(image_catalogue, remove_features, detection_algorithm, transform_type
                 *[[y["file"] for y in image_catalogue[image_series][image_type]['rows'][x]] for x in
                   image_catalogue[image_series][image_type]['rows'].keys()]))
             if len(image_adjustments) != len(image_sequence) and len(image_adjustments[0]) != len(image_sequence[0]):
-                errors.append(
+                errors = True
+                logging.error(
                     f'The number of images for {image_series} {image_type} does not match that of the color series')
                 continue
 
@@ -69,16 +78,16 @@ def stitch(image_catalogue, remove_features, detection_algorithm, transform_type
     print(f'The stitched images can be found in {out_path}')
     print(Style.RESET_ALL)
 
-    if len(errors) > 0:
-        error_file = 'stitch_errors.txt'
-        with open(error_file, 'w') as out_file:
-            out_file.write('\n'.join(errors))
+    if errors:
         print(Fore.RED)
         print('Some images or imaged object series were not stitched.')
-        print(f'See {error_file} for details.')
+        print(f'See {log_file} for details.')
 
 
 def main():
+    # Start the logger
+    logging.basicConfig(filename=log_file, encoding='utf-8', level=logging.WARNING)
+
     # Gather the command line options and prepare the initial settings
     out_path = args.o
 

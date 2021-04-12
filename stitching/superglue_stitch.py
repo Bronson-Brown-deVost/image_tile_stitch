@@ -3,14 +3,17 @@
 import cv2
 import torch
 from models.matching import Matching
+import logging
+
 torch.set_grad_enabled(False)
+logger = logging.getLogger(__name__)
 
 
 def __process_resize(w, h, resize):
-    assert(len(resize) > 0 and len(resize) <= 2)
+    assert (len(resize) > 0 and len(resize) <= 2)
     if len(resize) == 1 and resize[0] > -1:
         scale = resize[0] / max(h, w)
-        w_new, h_new = int(round(w*scale)), int(round(h*scale))
+        w_new, h_new = int(round(w * scale)), int(round(h * scale))
     elif len(resize) == 1 and resize[0] == -1:
         w_new, h_new = w, h
     else:  # len(resize) == 2:
@@ -18,17 +21,15 @@ def __process_resize(w, h, resize):
 
     # Issue warning if resolution is too small or too large.
     if max(w_new, h_new) < 160:
-        with open('./errors.txt', 's') as errors_out:
-            errors_out.write('Warning: input resolution is very small, results may vary')
+        logger.warning('Input resolution is very small, results may vary')
     elif max(w_new, h_new) > 2000:
-        with open('./errors.txt', 's') as errors_out:
-            errors_out.write('Warning: input resolution is very large, results may vary')
+        logger.warning('Input resolution is very large, results may vary')
 
     return w_new, h_new
 
 
 def __frame2tensor(frame, device):
-    return torch.from_numpy(frame/255.).float()[None, None].to(device)
+    return torch.from_numpy(frame / 255.).float()[None, None].to(device)
 
 
 def __read_loaded_image(image, device):
@@ -39,9 +40,11 @@ def __read_loaded_image(image, device):
 def get_corresponding_points_superglue(img1, img1_mask, img2, img2_mask, scale=1, min_error=-1):
     matching = __get_matcher()
     image0, inp0, scales0 = __read_loaded_image(
-        cv2.resize(cv2.bitwise_and(img1, img1, mask=img1_mask)[:, :, 2], (int(img1.shape[1] / scale), int(img1.shape[0] / scale))), 'cpu')
+        cv2.resize(cv2.bitwise_and(img1, img1, mask=img1_mask)[:, :, 2],
+                   (int(img1.shape[1] / scale), int(img1.shape[0] / scale))), 'cpu')
     image1, inp1, scales1 = __read_loaded_image(
-        cv2.resize(cv2.bitwise_and(img2, img2, mask=img2_mask)[:, :, 2], (int(img2.shape[1] / scale), int(img2.shape[0] / scale))), 'cpu')
+        cv2.resize(cv2.bitwise_and(img2, img2, mask=img2_mask)[:, :, 2],
+                   (int(img2.shape[1] / scale), int(img2.shape[0] / scale))), 'cpu')
 
     pred = matching({'image0': inp0,
                      'image1': inp1})

@@ -86,7 +86,7 @@ def stitch(image_catalogue, remove_features, detection_algorithm, transform_type
 
 def main():
     # Start the logger
-    logging.basicConfig(filename=log_file, encoding='utf-8', level=logging.WARNING)
+    logging.basicConfig(filename=log_file, level=logging.WARNING)
 
     # Gather the command line options and prepare the initial settings
     out_path = args.o

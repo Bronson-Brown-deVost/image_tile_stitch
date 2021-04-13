@@ -12,7 +12,10 @@ def get_keypoints(analyzer, img, mask, scale):
 
 
 def match_keypoints(des1, des2, kp1, kp2, scale, accuracy):
-    if None in [des1, des2, kp1, kp2] or 0 in [len(des1), len(des2)]:
+    if des1 is None or des2 is None or kp1 is None or kp2 is None:
+        return None
+        
+    if 0 in [len(des1), len(des2)]:
         return None
     # FLANN_INDEX_KDTREE = 0
     # index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
